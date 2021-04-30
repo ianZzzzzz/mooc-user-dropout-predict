@@ -5,92 +5,89 @@ from numpy import ndarray
 from numpy import datetime64
 from pandas import DataFrame
 #%%raw dataset
-
 raw_dataset_path =    {    
-     'train_log'   : 'raw_data_file\\train_log_T.csv'
+     'train_log'   : 'raw_data_file\\train_log.csv'
     ,'train_label' : 'raw_data_file\\train_truth.csv'
-    ,'test_log'    : 'raw_data_file\\test_log_T.csv'
+    ,'test_log'    : 'raw_data_file\\test_log.csv'
     ,'test_label'  : 'raw_data_file\\test_truth.csv'
     ,'user_info'   : 'raw_data_file\\user_info.csv'
     ,'course_info' : 'raw_data_file\\course_info.csv'
     }
 #%%
-def Major_data_process(
+def Featuer_engineering(
     name:str,
-    transfor_matrix:str,
-    dont_export = True,
+    transfor_matrix_type:str,
     load_log_from_json = True,
     export = False,
     TEST_OR_NOT = False
     ):
-    
-    print_batch = int(1000000)
-    chunk_size  = int(10000) # enable only when TEST_OR_NOT = True
+    """[csv_raw_file -> Data_cleansing -> Data_cleansing -> dict_dataset ]
 
+    Args:
+        name (str): [train or test]
+        transfor_matrix_type (str): [
+            complex or simple ,
+            default :simple ,simple means 4*4 have better performance,
+            complex means 22*22 may cause bug]
+
+        load_log_from_json (bool, optional): [description]. Defaults to True.
+        export (bool, optional): [description]. Defaults to False.
+        TEST_OR_NOT (bool, optional): [description]. Defaults to False.
+
+    Returns:
+        [type]: [description]
+    """    
+    print_batch = int(1000000)
+ 
     from scipy import stats
     import pandas as pd
     import numpy as np
     import json
 
     def load_label(mode:str,return_mode = 'list')->list:
+        
         def load(
             log_path: str,
-            return_mode='values',
+            return_mode='ndarray',
             read_mode='pandas',
             encoding_='utf-8',
-            columns=None,
-            test=TEST_OR_NOT)-> ndarray or DataFrame:
-            '''读取csv文件 返回numpy数组'''
-            #if read_mode == 'cudf':import cudf as pd
+            columns=None)-> ndarray or DataFrame:
+            """[ read csv file return dataframe or ndarray ]
 
+            Args:
+                log_path (str)
+                return_mode (str, optional): [ ndarray or df ]. Defaults to 'ndarray'.
+                read_mode (str, optional): [ pandas ]. Defaults to 'pandas'.
+                encoding_ (str, optional): [utf-8 or others ]. Defaults to 'utf-8'.
+                columns ([list], optional): [ column index ]. Defaults to None.
+
+            Returns:
+                ndarray or DataFrame: [description]
+            """            
+ 
             if read_mode == 'pandas' :
                 import pandas as pd
-                if test ==True: # only read 10000rows 
-                    reader = pd.read_csv(
-                        log_path
-                        ,encoding=encoding_
-                        ,names=columns
-                        ,chunksize=chunk_size)
-                        
-                    for chunk in reader:
-                        # use chunk_size to choose the size of test rows instead of loop
-                        log = chunk
-                        return log.values
-
-                else: # read full file
-                    
-                    print('    Start loading :',log_path)
-                    log = pd.read_csv(
-                        log_path
-                        ,encoding=encoding_
-                        ,names=columns)
-                    print('      Total length : ',len(log),'rows.')
-                    
+                # read full file
+                print('    Start loading :',log_path)
+                log = pd.read_csv(
+                    log_path
+                    ,encoding=encoding_
+                    ,names=columns)
+                print('      Total length : ',len(log),'rows.')
                 
             if return_mode == 'df':return log
-            if return_mode == 'values':return log.values
+            if return_mode == 'ndarray':return log.values
 
-        print('  load_label running : ')
-        np_label = load(
-          #  log_path = raw_folder_path+mode+'_truth.csv'
-            log_path = raw_dataset_path[mode+'_label'])
-        if return_mode == 'list':
-            print('    return list label.\n')
-            print('  load_label finish.\n')
-            return np_label[:,1].tolist()
-        
-        if return_mode == 'dict':
-            def list_to_dict(
+        def list_to_dict(
                 list_:list,
                 key_type  = 'int',
                 value_type='int')-> dict:
-                """[convert dict to list 
-                use the 1st cloumn make index 2nd column make value]
+                """[  convert list to dict ]
 
                 Args:
                     list_ (list): [shape(n,2)]
                 
-                Return: dict_ :w dict
+                Return: dict_ 
 
                 """  
                 dict_ = {}
@@ -101,6 +98,18 @@ def Major_data_process(
                     dict_[index_] = value_
                 
                 return dict_
+            
+        print('  load_label running : ')
+
+        # np:numpy.ndarray
+        np_label = load(
+            log_path = raw_dataset_path[mode+'_label'])
+        if return_mode == 'list':
+            print('    return list label.\n')
+            print('  load_label finish.\n')
+            return np_label[:,1].tolist()
+        
+        if return_mode == 'dict':
             
             dict_label = list_to_dict(list_ = np_label.tolist())
             print('    return dict label.\n')
@@ -136,51 +145,50 @@ def Major_data_process(
             columns= ['enroll_id'])
         return df_data,df_label,df_e_id
 
-    def preprocess(name,path):
+    def Data_cleansing(name,path):
         """[groupby enroll id and sort the log by time]
 
         Args:
-            name ([type]): [description]
-            path ([type]): [description]
+            name ([str]): [ train or test ]
+            path ([str]): [ raw log file path  ]
+        Returns:
+                [type:dict]:
+                    {
+                        enroll_id_1:
+                            data = [
+                                action_time
+                                , action
+                                , action_object
+                                , session 
+                                ]
+                        ,enroll_id_2:......,enroll_id_n:[[]]
+                    }
         """    
         def load(
             log_path: str,
             return_mode: str,
             read_mode='pandas',
             encoding_='utf-8',
-            columns=None,
-            test=TEST_OR_NOT)-> ndarray or DataFrame:
-            '''读取csv文件 返回numpy数组'''
+            columns=None )-> ndarray or DataFrame:
+       
             #if read_mode == 'cudf':import cudf as pd
 
             if read_mode == 'pandas' :
                 import pandas as pd
-                if test ==True: # only read 10000rows 
-                    reader = pd.read_csv(
-                        log_path
-                        ,encoding=encoding_
-                        ,names=columns
-                        ,chunksize=chunk_size)
-                        
-                    for chunk in reader:
-                        # use chunk_size to choose the size of test rows instead of loop
-                        log = chunk
-                        return log.values
-
-                else: # read full file
+                  # read full file
                     
-                    print('    Loading :',log_path)
-                    log = pd.read_csv(
-                        log_path
-                        ,encoding=encoding_
-                        ,names=columns)
-                    print('    Total length :',len(log),'rows.')
-                    
+                print('    Loading :',log_path)
+                log = pd.read_csv(
+                    log_path
+                    ,encoding=encoding_
+                    ,names=columns)
+                print('    Total length :',len(log),'rows.')
+                
                 
             if return_mode == 'df':return log
-            if return_mode == 'values':return log.values
+            if return_mode == 'ndarray':return log.values
 
-        def log_groupby_to_dict(
+        def log_groupby_enroll_id_to_dict(
             log: ndarray or list
             ,mode: str # 'train' or 'test' 
             ,test=TEST_OR_NOT
@@ -197,7 +205,7 @@ def Major_data_process(
                         action_object, # int
                         session        # int]}
             """   
-            print('\n    Log_groupby_to_dict running : \n')
+            print('\n    Log_groupby_enroll_id_to_dict running : \n')
             print('      ',str(mode)+' log amount :',len(log),' rows')
             i = 0
             log_dict = {}
@@ -374,7 +382,7 @@ def Major_data_process(
                 i+=1
                 if (i%print_batch)==0:print('already processed : ',i,'row logs')
 
-            print('    log_groupby_to_dict finish. ')
+            print('    log_groupby_enroll_id_to_dict finish. ')
             if export == True:   
                 print('\n    export mapping tables running : \n')
 
@@ -413,17 +421,19 @@ def Major_data_process(
                 
                 return log_dict
 
-        def time_convert_and_sort(
+        def log_time_convert_and_sort(
             log: dict 
-            ,drop_zero: bool
             ,path_eID_find_cID: str
+            ,drop_zero=True
             )->Dict[int,list]: 
             """[summary]
                 Origin time format : str , un-ordered
                 After this function: int , ordered
             Args:
                 log (dict): [description]
-                drop_zero (bool): [description]
+                drop_zero (bool): [ keep the gap between 2 action or not ,
+                                    defult :True,because the gap record 
+                                    by time interval static values]
 
             Returns:
                 [type:dict]:
@@ -437,7 +447,7 @@ def Major_data_process(
                                 ]
                     }
             """    
-            print('\n    time_convert_and_sort running : ')
+            print('\n    log_time_convert_and_sort running : ')
             print('    Total action series:',len(log))
           
             import json
@@ -586,10 +596,10 @@ def Major_data_process(
 
                 new_dict[int(e_id)] =  rebulid.tolist()
                 
-            print('    time_convert_and_sort finish. \n')  
+            print('    log_time_convert_and_sort finish. \n')  
             return new_dict
 
-        print('\n  Preprocess running : \n')    
+        print('\n  Data_cleansing running : \n')    
         # course infomation file
         c_info_path = raw_dataset_path['course_info']
         c_info_col = [
@@ -601,7 +611,7 @@ def Major_data_process(
         C_INFO_NP = load(
             log_path =c_info_path,
             read_mode ='pandas',
-            return_mode = 'values',
+            return_mode = 'ndarray',
             encoding_ = 'utf-8',
             columns =c_info_col
             )
@@ -621,11 +631,11 @@ def Major_data_process(
         log_np = load(
             log_path =path,
             read_mode ='pandas',
-            return_mode = 'values', # 'values': ndarray , 'df': dataframe
+            return_mode = 'ndarray', # 'ndarray': ndarray , 'df': dataframe
             encoding_ = 'utf-8', 
-            columns =log_col)
+            columns =log_col )
 
-        dict_log = log_groupby_to_dict( 
+        dict_log = log_groupby_enroll_id_to_dict( 
             log_np[1:,:],
             mode = name)  
         log_np = None # release memory
@@ -637,17 +647,17 @@ def Major_data_process(
         path_eID_find_cID = id_mapping_table_path +name+'\\enroll_find_course.json'
         
         # drop time gap
-        dict_log_after_time_convert_and_sort = time_convert_and_sort(
+        dict_log_after_log_time_convert_and_sort = log_time_convert_and_sort(
             dict_log,
             drop_zero = True,
             path_eID_find_cID= path_eID_find_cID )
         dict_log = None
 
         print('    Exproting processed dict_log.')
-        print('\n  Preprocess finish. \n')
-        return dict_log_after_time_convert_and_sort
+        print('\n  Data_cleansing finish. \n')
+        return dict_log_after_log_time_convert_and_sort
 
-    def extract_feature(
+    def Extract_feature(
         name:str,
         dict_log,
         return_mode = 'dict')-> dict:
@@ -655,7 +665,18 @@ def Major_data_process(
 
         Args:
             name (str): [description]
-            dict_log ([type]): [description]
+            dict_log ([type]): [log groupby enroll id]
+            
+            dict_log = {
+                        enroll_id_1:
+                            data = [
+                                action_time
+                                , action
+                                , action_object
+                                , session 
+                                ]
+                        ,enroll_id_2:......,enroll_id_n:[[]]
+                    }
         Return:
             [
                 0_L_mean,# long interval
@@ -695,47 +716,71 @@ def Major_data_process(
         
         """        
         
-        def extract_feature_on_LogData(dict_log)-> dict:
-            """[caculate static value of time interval,
-                and 
-                counting state transfor of log ]
+        def Extract_feature_on_LogData(
+            dict_log
+            ,THERSHOD_long_interval = int(60*5))-> dict:
+            """[caculate interval feature and 
+                counting state transfor matrix   ]
 
             Args:
-                dict_log ([type]): [description]
+                THERSHOD_long_interval(int) : break point between long and short time interval
+                dict_log (dict): [log groupby enroll id]
+                dict_log = {
+                        enroll_id_1:
+                                [
+                                action_time
+                                , action
+                                , action_object
+                                , session 
+                                ]
+                        ,enroll_id_2:......
+                        ,enroll_id_n:......
+                    }
 
             Returns:
-                dict: [
-                    long_interval_static, # mean,var,skew,kurtosis
-                    short_interval_static,# mean,var,skew,kurtosis
-                    scene_transfer_count  # transfor matrix 4*4
-                ]
+                dict:{
+                    enroll_id_1: [        
+                     # interval feature including long_interval_static and short_interval_static
+                     # state transfer feature is scene_transfer_count 
+                    long_interval_static, # mean,var,skew,kurtosis : 4  items
+                    short_interval_static,# mean,var,skew,kurtosis : 4  items
+                    scene_transfer_count  # transfor matrix 4*4    : 16 items]
+                    ,enroll_id_2:......
+                    ,enroll_id_n:......
+                    }
             """    
-            THERSHOD_long_interval = int(60*5)
-            def static_(interval_list):
+            
+            def caculate_statistic_of_interval_series(interval_list):
+                """[caculate statistic of interval series]
+
+                Args:
+                    interval_list ([type]): [description]
+
+                Returns:
+                    [list]: [mean,var,skew,kurtosis] # cut by %2f
+                """                    
+                if len(interval_list) > int(3):
+                    R = interval_list
+                    R_mean = np.mean(R) # 计算均值
+                    R_var = np.var(R)   # 计算方差
+                    R_skew = stats.skew(R)  #计算偏斜度 有偏
+                    R_kurtosis = stats.kurtosis(R) #计算峰度 有偏
+
+                    R_skew = np.abs(R_skew)
+                    R_kurtosis = np.abs(R_kurtosis)
+
+                    static_list = [
+                        round(R_mean,2)
+                        ,round(R_var,2)
+                        ,round(R_skew,2)
+                        ,round(R_kurtosis,2)]
+
+                else:
+                    static_list = [
+                        np.nan,np.nan ,np.nan ,np.nan ]
                     
-                    if len(interval_list) > int(3):
-                        R = interval_list
-                        R_mean = np.mean(R) # 计算均值
-                        R_var = np.var(R)   # 计算方差
-                        R_skew = stats.skew(R)  #计算偏斜度 有偏
-                        R_kurtosis = stats.kurtosis(R) #计算峰度 有偏
-
-                        R_skew = np.abs(R_skew)
-                        R_kurtosis = np.abs(R_kurtosis)
-
-                        static_list = [
-                            round(R_mean,2)
-                            ,round(R_var,2)
-                            ,round(R_skew,2)
-                            ,round(R_kurtosis,2)]
-
-                    else:
-                        static_list = [
-                            np.nan,np.nan ,np.nan ,np.nan ]
-                        
-                    
-                    return static_list
-            print("\n    extract_feature_on_LogData running : \n")
+                return static_list
+            print("\n    Extract_feature_on_LogData running : \n")
             time_interval_dict   = {}
             static_interval_dict = {}
             enroll_scene_dict    = {}
@@ -758,7 +803,6 @@ def Major_data_process(
 
                     now_time = row_now[0]
                     
-
                     now_object = row_now[2]
                     now_session = row_now[3]
                     next_time = row_next[0]
@@ -783,12 +827,12 @@ def Major_data_process(
                         now_action = row_now[1]
                         next_action = list_log[row+1][1]
                         #nextnext_action = list_log[row+2][1]
-                        if transfor_matrix =='simple':
+                        if transfor_matrix_type =='simple':
                                 
                             a0 = str(now_action)[0]
                             a1 = str(next_action)[0]
                             #a2 = str(nextnext_action)[0]
-                        if transfor_matrix =='complex':
+                        if transfor_matrix_type =='complex':
                             a0 = str(now_action)
                             a1 = str(next_action)
                             
@@ -797,8 +841,8 @@ def Major_data_process(
                         scene_dict[scene_]+=1
                         
                 
-                short_static = static_(short_interval_list)
-                long_static  = static_(long_interval_list)
+                short_static = caculate_statistic_of_interval_series(short_interval_list)
+                long_static  = caculate_statistic_of_interval_series(long_interval_list)
                 scene_list = list(scene_dict.values())
                 # 3 head/tail gap
                     
@@ -815,11 +859,11 @@ def Major_data_process(
                 static_and_scene_dict[int(e_id)] = static_and_scene_list
                 # break
             
-            print('      extract_feature_on_LogData finish')
+            print('      Extract_feature_on_LogData finish')
             print('      Success extract interval static values and actions transfer matrix.')
             return static_and_scene_dict
         
-        def extract_feature_on_InfomationData(
+        def Extract_feature_on_InfomationData(
             mode: str,
             threshold_course_amount = int(3),
             threshold_student_amount = int(3),
@@ -928,7 +972,7 @@ def Major_data_process(
                             
                             print('            Total length :',len(log),'rows')
                     if return_mode == 'df':return log
-                    if return_mode == 'values':return log.values
+                    if return_mode == 'ndarray':return log.values
 
                 def user_info_list_to_dict(list_:list)-> dict:
                     """[convert list to dict  use the 1st cloumn make index 2nd column make value]
@@ -1139,7 +1183,7 @@ def Major_data_process(
                 U_INFO_NP = load(
                     log_path =u_info_path,
                     read_mode ='pandas',
-                    return_mode = 'values',
+                    return_mode = 'ndarray',
                     encoding_ = 'utf-8',
                     columns =u_info_col)
                 
@@ -1147,7 +1191,7 @@ def Major_data_process(
                 C_INFO_NP = load(
                     log_path =c_info_path,
                     read_mode ='pandas',
-                    return_mode = 'values',
+                    return_mode = 'ndarray',
                     encoding_ = 'utf-8',
                     columns =c_info_col
                     )
@@ -1216,7 +1260,7 @@ def Major_data_process(
             
             
             
-            print('    extract_feature_on_InfomationData running : ')
+            print('    Extract_feature_on_InfomationData running : ')
             # load hash table
             hash_path = 'after_processed_data_file\\id_relation_mapping_rule\\'+mode
             
@@ -1373,8 +1417,8 @@ def Major_data_process(
         print('  Extract_feature running : ')
    
   
-        log_feature_dict  = extract_feature_on_LogData(dict_log)
-        info_feature_dict = extract_feature_on_InfomationData(mode = name)
+        log_feature_dict  = Extract_feature_on_LogData(dict_log)
+        info_feature_dict = Extract_feature_on_InfomationData(mode = name)
        
         # assemble
         print('  Extract_feature finish. ')
@@ -1396,74 +1440,51 @@ def Major_data_process(
                 mode = name,
                 return_mode='dict')
 
+            data = {}
+            for e_id in log_feature_dict.keys():
+                try:
+                    label = dict_label[e_id]
+                except:
+                    label = dict_label[int(e_id)]
 
-            if dont_export ==True:
-                data = {}
-                for e_id in log_feature_dict.keys():
-                    try:
-                        label = dict_label[e_id]
-                    except:
-                        label = dict_label[int(e_id)]
+                e_id = int(e_id)
+                data[e_id] = {}
 
-                    e_id = int(e_id)
-                    data[e_id] = {}
+                data[e_id]['log_features'] = log_feature_dict[e_id]
+                data[e_id]['info_features'] = info_feature_dict[e_id] 
+                data[e_id]['label'] = label
 
-                    data[e_id]['log_features'] = log_feature_dict[e_id]
-                    data[e_id]['info_features'] = info_feature_dict[e_id] 
-                    data[e_id]['label'] = label
-                
-                return data
-            else:
-                data = {}
-                for e_id in log_feature_dict.keys():
-                    try:
-                        label = dict_label[e_id]
-                    except:
-                        label = dict_label[int(e_id)]
-
-                    e_id = int(e_id)
-                    data[e_id] = {}
-
-                    data[e_id]['features'] = [
-                    #  *info_dict[e_id],
-                        *log_feature_dict[e_id],
-                        *info_feature_dict[e_id] ]
-                    
-                    data[e_id]['label'] = label
-
-                print('  ALL features are ready to use.')
-                return data
+            print('  ALL features are ready to use.')
+            return data
 
     print('\n',name.capitalize()+'ing Mode Enable .')
     print('Major Data Process is running : \n') 
 
-    dict_log = preprocess(
+    dict_log = Data_cleansing(
         name=name, 
-        #path = raw_folder_path+name+'_log_T.csv'
         path = raw_dataset_path[name+'_log'] 
         )
   
-    dict_data = extract_feature(
+    dict_data = Extract_feature(
         name = name,
         dict_log = dict_log
         )
     dict_log  = None # release memory
 
 
-    if dont_export ==True :
     
-        return dict_data
-    print('Major Data Process is finish.')    
+    print('Featuer enginee is finish.')    
+    return dict_data
+    
         
 
-dict_data_train = Major_data_process(
-    dont_export=True,
+dict_data_train = Featuer_engineering( 
     load_log_from_json = False,
-    transfor_matrix = 'simple',
+    transfor_matrix_type = 'simple',
     name = 'train' )
-dict_data_test = Major_data_process(
-    dont_export=True,
-    transfor_matrix = 'simple',
+ 
+dict_data_test = Featuer_engineering(
+    transfor_matrix_type = 'simple',
     load_log_from_json = False,
     name = 'test')
 
@@ -1474,7 +1495,7 @@ dict_data_test = Major_data_process(
 
 
 # %%
-import json
-json.dump(dict_data_train,open('dict_data_train.json','w'))
-json.dump(dict_data_test,open('dict_data_test.json','w'))
-# %%
+# import json
+# json.dump(dict_data_train,open('after_processed_data_file\\feature\\train_dataset.json','w'))
+# json.dump(dict_data_test,open('after_processed_data_file\\feature\\test_dataset.json','w'))
+ 
